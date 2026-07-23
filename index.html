@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BashTab Demo — Intelligent Bash Autocompletion</title>
+<link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  header .logo {
+    font-size: 20px;
+    font-weight: 700;
+    color: #58a6ff;
+  }
+  header .logo span { color: #f78166; }
+  header .links { margin-left: auto; display: flex; gap: 12px; }
+  header .links a {
+    color: #8b949e;
+    text-decoration: none;
+    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+    transition: all 0.15s;
+  }
+  header .links a:hover { color: #c9d1d9; border-color: #58a6ff; }
+  .main {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+  .sidebar {
+    width: 280px;
+    background: #161b22;
+    border-right: 1px solid #30363d;
+    padding: 20px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .sidebar h3 {
+    color: #f78166;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+  .sidebar .cmd {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    border-radius: 6px;
+    background: #21262d;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+    word-break: break-all;
+  }
+  .sidebar .cmd:hover { border-color: #58a6ff; background: #1c2533; }
+  .sidebar .cmd .hint { color: #8b949e; font-size: 12px; display: block; margin-top: 2px; }
+  .sidebar .status {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #30363d;
+  }
+  .sidebar .status .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .sidebar .status .dot.boot { background: #f0883e; animation: pulse 1.5s infinite; }
+  .sidebar .status .dot.ready { background: #3fb950; }
+  .sidebar .status .dot.error { background: #f85149; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .terminal-container {
+    flex: 1;
+    padding: 8px;
+    min-width: 0;
+  }
+  #terminal {
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .xterm { padding: 8px; }
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🐚 Bash<span>Tab</span> <span style="font-size:12px;color:#8b949e;font-weight:400">Demo</span></div>
+  <div class="links">
+    <a href="https://github.com/evagreendev/BashTab" target="_blank">GitHub</a>
+    <a href="https://github.com/copy/v86" target="_blank">Powered by v86</a>
+  </div>
+</header>
+
+<div class="main">
+  <aside class="sidebar">
+    <h3>🪄 Try these commands</h3>
+    <div class="cmd" onclick="sendCmd('bu')">
+      bu
+      <span class="hint">List all commands</span>
+    </div>
+    <div class="cmd" onclick="sendCmd('bu get-command --verb module')">
+      bu get-command --verb module
+      <span class="hint">Find module commands</span>
+    </div>
+    <div class="cmd" onclick="sendCmd('bu get-module')">
+      bu get-module
+      <span class="hint">List loaded modules</span>
+    </div>
+    <div class="cmd" onclick="sendCmd('bu new-command --help')">
+      bu new-command --help
+      <span class="hint">Scaffold a new command</span>
+    </div>
+    <div class="cmd" onclick="sendCmd('bu new-module --help')">
+      bu new-module --help
+      <span class="hint">Scaffold a new module</span>
+    </div>
+    <div class="cmd" onclick="sendCmd('ls -la /opt/bash-tab/')">
+      ls -la /opt/bash-tab/
+      <span class="hint">Browse BashTab source</span>
+    </div>
+    <div class="cmd" onclick="sendCmd('echo $HOME && uname -a')">
+      echo $HOME && uname -a
+      <span class="hint">System info</span>
+    </div>
+
+    <div class="status">
+      <div style="font-size:12px;color:#8b949e">
+        <span class="dot boot" id="statusDot"></span>
+        <span id="statusText">Booting...</span>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:#484f58">
+        Alpine Linux 3.21 (i386)<br>
+        Running entirely in your browser<br>
+        via WebAssembly + v86
+      </div>
+      <div class="cmd" style="margin-top:12px;font-size:11px;" onclick="copyShareLink()">
+        📋 Copy share link
+      </div>
+    </div>
+  </aside>
+
+  <div class="terminal-container">
+    <div id="terminal"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="node_modules/v86/build/libv86.js"></script>
+<script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
+<script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+<script src="node_modules/@xterm/addon-unicode11/lib/addon-unicode11.js"></script>
+
+<script src="./index.js"></script>
+
+</body>
+</html>
